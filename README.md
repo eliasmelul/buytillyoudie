@@ -160,3 +160,287 @@ data.iloc[0] #Preferable data.head() but this is enough for github readme
 |Churn   |  No|
 
 
+## Retention
+
+### Kaplan Meier Curve - Survival Function
+
+The Kaplan-Meier estimator is a non-parametric statistic used to estimate the survival function from lifetime data. The Kaplan-Meier curve shows the probability of an event being true at a certain time interval - the probability of survival at a specific point in time. It is a good way to approximate the retention rate of a firm whose customers are in a **contractual** setting, such as Telco.
+
+```
+#Create empty matrix
+surv_mat = np.zeros(shape=(max(data.tenure)+1,6))
+surv_mat = pd.DataFrame(surv_mat, columns=['NumCustomers','NumChurned','NumCensored','NumRemaining','SurvivalRate','SurvivalFunc'])
+
+#Commit values of first row to matrix - starting point
+surv_mat.iloc[0] = (data.shape[0],0,0,data.shape[0],1,1)
+
+# Calculate the number of customers that have churned and the number of customer that we censored for every time period
+ten = list(data.tenure)
+chu = list(data.Churn)
+chu2 = list(data.Churn)
+for t in range(len(surv_mat)):
+    for l in range(len(chu)):
+        if chu[l] == "Yes" and ten[l] == t:
+            chu[l] = t
+            surv_mat.at[t, 'NumChurned'] = chu.count(t)
+        elif chu[l] == "No" and ten[l] == t:
+            chu2[l] = t
+            surv_mat.at[t, 'NumCensored'] = chu2.count(t)
+            
+for t in range(1,len(surv_mat)):
+    #Calculate the Number of Customers at time t (index)
+    surv_mat.at[t, "NumCustomers"] = surv_mat.iloc[t-1,surv_mat.columns.get_loc("NumRemaining")] - surv_mat.iloc[t,surv_mat.columns.get_loc("NumCensored")]
+    
+    #Calculate the Number of Remaining Customers at time t
+    surv_mat.at[t, "NumRemaining"] = surv_mat.iloc[t,surv_mat.columns.get_loc("NumCustomers")] - surv_mat.iloc[t,surv_mat.columns.get_loc("NumChurned")]
+    
+    #Calculate survival rate for every time period
+    surv_mat.at[t, "SurvivalRate"] = surv_mat.iloc[t,surv_mat.columns.get_loc("NumRemaining")] / surv_mat.iloc[t,surv_mat.columns.get_loc("NumCustomers")]
+    
+    #Survival Function (cumulative survival)
+    surv_mat.at[t, "SurvivalFunc"] = surv_mat.iloc[t,surv_mat.columns.get_loc("SurvivalRate")] * surv_mat.iloc[t-1,surv_mat.columns.get_loc("SurvivalFunc")]    
+```
+Great! We have now estimated the survival function. Let's see how it looks.
+```
+surv_mat['SurvivalFunc'].plot(figsize = (8,5))
+plt.ylim(0,1)
+plt.xlim(0,74)
+plt.xlabel("Periods (months)")
+plt.ylabel("Survival Rate")
+plt.title("Kaplan-Meier Curve")
+plt.show()
+```
+<img src="https://i.ibb.co/jJWntqZ/KMCurve.png" alt="KMCurve" border="0">
+
+Awesome! Above we can see the Kaplan-Meier curve - the survival function. Like we explained previously, it shows the probability of a customer still being active with Telco over time. As expected, it decreases with tenure, with a higher significant decrease in the first several months and then eroding over time.
+
+**How can we approximate the retention rate using Kaplan Meier?** 
+
+We will utilize an optimizer to minimize the sum of the absolute error between the actual retention at the end of every year and the expected retention, which, since we assumed that customers have a constant retention rate over time in our CLV function, we will equal the retention rate to the power of the year in question.
+
+```
+months = int(round(surv_mat.shape[0]/12,0))
+year_vals = np.zeros(shape=(months,4))
+for y in range(len(year_vals)):
+    year_vals[y,0] = y+1
+    year_vals[y,1] = surv_mat.SurvivalFunc[(y+1)*12]
+# We create an exception for the last year, and move the retention rate to the month prior to that year's completion
+year_vals[(months-1),1] = surv_mat.SurvivalFunc[((y+1)*12)-1]
+```
+Now that we have created the matrix full of zeros and included the year number and the actual retained value, let's create the optimization function.
+
+To define a Solver-type (Excel) of problem in python, one must define a function which has the value that will be changed as the input of the function. In our case, that input is alpha, from which we will calculate the estimated constant retention. Once we have the estimated retention based on the alpha, we can calculate the absolute error per year and return the sum of all errors. The optimizer will deal with minimizing such error later on! For now, let's define the function!
+
+```
+from scipy.optimize import minimize
+
+def absoluteSum(alpha):
+    #Loop through all the rows in the year_vals matrix
+    for y in range(len(year_vals)):
+        #Calculate the estimated retention based on the alpha inputed in the function
+        year_vals[y,2] = alpha**year_vals[y,0]
+        #Calculate the absolute error between the estimated and the actual retention
+        year_vals[y,3] = abs(year_vals[y,2] - year_vals[y,1])
+    # Return the sum of the absolute errors    
+    abserrors = sum(year_vals[:,3])
+    return abserrors
+```
+Great! One minor thing. We have to define the bounds for our input (alpha). It has to be greater than 0 and less than 1. We will also initialize the alpha value for the optimization function. We simply put 0.5 and called it aleph, but you can define it as whatever number you please!
+
+```
+#Define bounds for out input and 
+bound = [(0,1)]
+aleph = 0.5
+```
+Awesomesauce! Let's try out the optimization function, minimum. We input the objective function first, then the initial value for the value(s) to be changed - our alpha -, the optimization method, and the bounds for the input.
+```
+res = minimize(absoluteSum,aleph,method='SLSQP',bounds=bound)
+print(f"Our alpha equals: {round(res.x[0]*100,2)}%")
+```
+Our alpha equals: 91.6%
+
+Wow! 91.6% is a pretty good retention rate. What this means is that every year, we should expect the beginning customer base to decrease by 8.4%. Let's exemplify this.
+
+Assume Telco has a profit margin of 17%, as <a href="https://www.investopedia.com/ask/answers/060215/what-average-profit-margin-company-telecommunications-sector.asp">Investopedia</a> says about the Telecommunication industry. Let's also assume no growth and a discount rate of 5%. What would our margin multiplier be? CLV?
+
+```
+marg = margin_multiplier(res.x[0], 0.05)
+#Calculate mean monthly revenue per customer and annualize it
+meanRev = data.MonthlyCharges.mean()*12
+margProf = meanRev * 0.17
+#Calculate the CLV
+clv = clvCalc(margProf,marg)
+
+print(f"The margin multiplier is: {round(marg,4)}")
+print(f"The mean annualized revenue per customer is: ${round(meanRev,2)}")
+print(f"The Customer Lifetime Value is: ${round(clv,2)}")
+```
+The margin multiplier is: 6.834
+The mean annualized revenue per customer is: $777.14
+The Customer Lifetime Value is: $902.87
+
+What if we could create an incentive program that increases retention by 5%, such as a loyalty/reward program. What would happen to our margin multiplier and CLV under the same assumptions?
+
+```
+marg = margin_multiplier(res.x[0]+0.05, 0.05)
+#Calculate mean monthly revenue per customer and annualize it
+meanRev = data.MonthlyCharges.mean()*12
+margProf = meanRev * 0.17
+#Calculate the CLV
+clv = clvCalc(margProf,marg)
+
+print(f"The margin multiplier is: {round(marg,4)}")
+print(f"The mean annualized revenue per customer is: ${round(meanRev,2)}")
+print(f"The Customer Lifetime Value is: ${round(clv,2)}")
+```
+The margin multiplier is: 11.4954
+The mean annualized revenue per customer is: $777.14
+The Customer Lifetime Value is: $1518.71
+
+Incredible! Our margin multiplier and CLV almost doubled... and that's just with a 5% increase in retention! 
+The importance of rentention has never been so obvious.
+
+---
+
+### BG/NBD
+The above data had one benefit that is not common in all businesses: it was contractual data. This means that we know whether a customer has churned and therefore can calculate or at least estimate their tenure. The benefits of such data are obvious. However, since this is not always the case, we are going to look at a model that uses non-contractual data: BG/NBD Model - a derivation of the Pareto/NBD model which has been proven to be hard to implement. This model only needs:
+1. The number of transactions a customer has made **after** their first transaction.
+2. The time of a customer's last purchase.
+3. How long has the customer been tracked for. 
+
+One of the key differences between the Pareto/NBD and the BG/NBD model is based on the story being told about how and when customers become inactive. The Pareto timing model assumed that customer churn can occur at any point in time, independetly of the occurrence of actual purchases. However, the BG/NBD model assumed that churn can only occur immediately after a purchase, hence, we can model the timing model as a betageometric model. To learn the formal mathematical change between models, you can access the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>.
+
+#### Data Generation
+
+Telco's data doesn't fit this problem, but let's repurpose it to fit the problem. We will convert it as follows:
+* The integer of the ratio between Total and Monthly charges will indirectly become the **week** of last purchase
+* The number of transactions will be a random integer from 0 to 10
+* How long the customer has been tracked is the week of last purchase plus a random integer from 1 to 40
+
+```
+LastPurchase = []
+TransactionList = []
+for i, row in data.iterrows():
+    try:
+        # We subtract 10 to create a more realistic setting where some customers have not had a second purchase
+        inti = int(float(row.TotalCharges)/float(row.MonthlyCharges)) - 10
+        LastPurchase.append(max(inti, 0))
+        if (inti == 0):
+            TransactionList.append(0)
+        else:
+            TransactionList.append(np.random.randint(1,10))
+    except:
+        pass
+LastPurchase = pd.DataFrame(list(zip(LastPurchase, TransactionList)), columns=["LastPurchase","Transactions"])
+#Lets generate numbers for how long customers have been tracked where they are at least one unit larger than the time of last purchase
+LastPurchase['Tracked'] = LastPurchase['LastPurchase']+ [np.random.randint(1,40) for i in range(len(LastPurchase))]
+```
+Great! Now that we have the data, let's build the model.
+
+In case you have not checked out the actual paper explaining the BG/NBD Model, we will do a quick recap. If you want to understand the model deeply, check out the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>.
+
+**Technical Summary**
+
+1. The number of transactions made by a customers follows a Poisson process with trasaction rate lambda.
+    This is the same as exponentially distributed  time between trasactions 
+<img src="https://i.ibb.co/1KHp2kF/1-Poisson-Process.png" alt="1-Poisson-Process" border="0">
+
+
+2. Heterogenerity ("distribution") in lambda follows a gamma distribution with PDF:
+<img src="https://i.ibb.co/n7RXPpd/2-Gamma-Dist.png" alt="2-Gamma-Dist" border="0">
+
+
+3. After a transaction, a customer can become innactive. The probability of that occuring is denoted by the letter p. Therefore, the point at which the customer "drops out" is distributed across transactions according to a (shifted) geometric distribution with PMF:
+<img src="https://i.ibb.co/C6qLck8/3-PINactive.png" alt="3-PINactive" border="0">
+
+
+4. Heterogeneity ("distribution"/variation) in p follows a Beta distribution with PDF:
+<img src="https://i.ibb.co/wsJ2vgb/4-Beta-Dist.png" alt="4-Beta-Dist" border="0">
+    The transaction rate lambda and the dropout probability p vary independently accross customers.
+    
+    
+5. Therefore, the expected number of transactions in a time period t is:
+<img src="https://i.ibb.co/sgKYK29/5-Expeted-Transactions.png" alt="5-Expeted-Transactions" border="0">
+    This is central to computing the expected transaction volume over time
+
+
+6. And the expected number of transactions of an individual with certain characteristics during the specified time period is:
+<img src="https://i.ibb.co/yNPKFfy/6-Expected-Volume.png" alt="6-Expected-Volume" border="0">
+    In other words, how much is an individual going to purchase in the future?
+    
+Note that in an industry or company where active buyers are either uncommon or very slow in making their purchases, the BG/NBD model will not perform well compared to the Pareto/NBD.
+
+---
+
+**Conceptual Summary**
+
+The BG/NBD model quantifies the lifetime value of a customer by assessing the expected number of transactions s/he will have in the future as long as s/he has not churned. For any given customer at any given time there are two options: (1) the customer purchases or does not purchase again, and (2) the customer churns or does not churn. These two options are probabilisitic, meaning that there is a probability associated with the customer pruchasing at a given period and a different probability of a customer churning at a given period. 
+
+The model assumes the following:
+1. Until a customer churns, the number of transactions made by a customer follows a <a href="https://ocw.mit.edu/courses/electrical-engineering-and-computer-science/6-262-discrete-stochastic-processes-spring-2011/course-notes/MIT6_262S11_chap02.pdf">Poisson process</a> - a simple and widely used stochastic process for modeling the times at which arrivals enter a system. 
+    
+    So at every period (week) in a defined time interval (one year = 52 weeks), the customer decides whether to pruchase or not. The number of purchases a customer makes is dependent on each customer's probability distribution around lambda, the arrival rate.
+
+```
+from scipy.stats import poisson, expon, nbinom, gamma
+
+lmbdas = [2,4,6,8,10,12,14,16]
+complete = []
+for l in lmbdas:
+    plot1 = []
+    for t in range(0,35):
+        plot1.append(poisson(l).pmf(t))
+    complete.append(plot1) 
+complete = pd.DataFrame(complete, index=[2,4,6,8,10,12,14,16]).T
+complete.plot(figsize=(10,8))
+plt.title("Poisson Probability Mass Function")
+plt.xlabel("Number of Transactions")
+plt.ylabel("Probability")
+plt.legend([2,4,6,8,10,12,14,16], title="lambda values")
+plt.show()
+```
+<img src="https://i.ibb.co/Js1gW08/Poisson.png" alt="Poisson" border="0">
+
+This graph simply shows the probability associated with the number of transactions of a customer given different arrival rates - lambdas. Makes sense, yes?
+
+2. The probability that a customer will purchase follows a Gamma distribution. Similarly, it is the time (the wait time) until the customer purchases again. Therefore, since the number of transaction (from 1) is dependent on the probability of purchase at any given point, we will simulate a Poisson distribution where the rate of arrival (rate of purchasing) - lambda -, is modeled with a Gamma distribution. 
+    
+    Note that there is no general concensus as to what the scale parameter should be. Since k is the number of events, we will typically use averages, medians, etc. We will use shape = 5, scale = 1.
+    
+```
+shap = 5
+scal = 1
+
+#simulate over 100 customers
+for c in range(100):
+    pprocess = poisson(np.random.gamma(shape=shap, scale=scal))
+    complete = []
+    for t in range(30):
+        complete.append(pprocess.pmf(t))
+    plt.plot(complete)
+    plt.xlabel("Number of Transactions")
+    plt.ylabel("Probability")
+```
+<img src="https://i.ibb.co/5YtDbf0/Gamma-Poisson.png" alt="Gamma-Poisson" border="0">
+
+3. There is a probability, p, that a customer becomes innactive after any transaction. This dropout rate is distributed across transactions based on a shifted Geometric distribution. In simple terms, the distribution explains that the higher the amount of transactions a customer makes, the higher the probability of being active - ie not churned.
+
+
+4. Heterogeneity in the probability of churning follows a Beta distribution. In other words, each customer has a different probability of havings churned after a specific amount of transactions.
+
+
+5. Lambda and the churn probability, p, are independent across customers.
+
+There are three main outputs from the BG/NBD model:
+    1. The expected number of transactions in a time period
+    2. The probability of observing a number of transactions in a time period
+    3. the probability of a customer being innactive after a specified period
+    
+---
+    
+**BG/NBD Modeling**
+
+Let's get the model implemented! Recall this model only needs:
+1. The number of transactions a customer has made **after** their first transaction.
+2. The time of a customer's last purchase.
+3. How long has the customer been tracked for. 
