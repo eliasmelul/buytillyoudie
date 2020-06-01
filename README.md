@@ -49,22 +49,21 @@ What are the assumptions that this Infinite Horizon CLV makes?
 
 This metric is key to quantifying the revenues and benefits of acquiring new customers or retaining them.
 
-<img src="https://i.ibb.co/p2mmtHp/Color-Framework.png" alt="Color-Framework" border="0">
+Let's look at a quick **CLV example**:
 
-The above equation shows the expected customer equity based on the variables in our framework. From here on out, everything that we try to do is intended to increase customer equity, which in turn increases profitability. Mostly, we will deal with customer acquisition and retention. We will start with the latter.
+    Let's assume that the retention rate is 90%, and that the discount rate is 10%. What is the margin multiplier?
+
+    If we assume that the margin is $60, what is the CLV?
 
 ```
 def margin_multiplier(alpha, discountrate):
     M = alpha/(1+discountrate-alpha)
     return M
+    
 def clvCalc(margin, multiplier):
     clv = margin*multiplier
     return clv
-```
-Let's assume that the retention rate is 90%, and that the discount rate is 10%. What is the margin multiplier?
-
-If we assume that the margin is $60, what is the CLV?
-```
+    
 print(f"The margin multiple is {round(margin_multiplier(0.9,0.1),2)}.")
 print(f"The CLV is ${round(clvCalc(60,margin_multiplier(0.9,0.1)))}.")
 ```
@@ -91,9 +90,15 @@ print(f"The margin multiple is {round(margin_multiplier(0.9,0.1,0.03),2)}.")
 print(f"The CLV is ${round(clvCalc(60,margin_multiplier(0.9,0.1,0.03)))}.")
 ```
 The margin multiple is 5.2.
-The CLV is $310.
+The CLV is $312.
 
-Great stuff! Now, let's introduce our data.
+**Customer Equity**
+
+At the heart of every marketing initiative is a drive to increase profits, right?
+
+<img src="https://i.ibb.co/p2mmtHp/Color-Framework.png" alt="Color-Framework" border="0">
+
+The above equation shows the expected customer equity based on the variables in our framework. From here on out, everything that we try to do is intended to increase customer equity, which in turn increases profitability. Mostly, we will deal with customer acquisition and retention. We will start with the latter.
 
 ## Data Understanding
 
@@ -444,3 +449,175 @@ Let's get the model implemented! Recall this model only needs:
 1. The number of transactions a customer has made **after** their first transaction.
 2. The time of a customer's last purchase.
 3. How long has the customer been tracked for. 
+
+For the modeling, we are going to use the _lifetimes_ library. In the appendix, you can find the actual functions and derivations. However, due to the lack of an easy to understand non-linear optimizer in Python, I only include the code for the function.
+
+Since our Telco data does not fit, we will use sample data from the _lifetime_ library.
+
+```
+from lifetimes.datasets import load_cdnow_summary
+LastPurchase = load_cdnow_summary(index_col=[0])
+LastPurchase.columns = ["Transactions","LastPurchase","Tracked"]
+LastPurchase.head()
+```
+|Transactions|LastPurchase|Tracked|
+|-----------|------------|--------|
+|2|30.43|38.86|
+|1|1.71|38.86|
+|0|0|38.86|
+|0|0|38.86|
+|0|0|38.86|
+
+Every row of the data represents a customer. For each customer, we define the number of transactions done after first purchase (Transactions), the time of last purchase (LastPurchase) and the amount of time said customer has been tracked for (Tracked).
+
+Next, we import and fit the model. This will tell us the optimal parameters for fitting the beta and geometric distributions. Subsequently, we will calculate the probability of a customer not having churned (being alive) and the expected number of transaction s/he will generate in the upcoming year (52 weeks).
+
+```
+from lifetimes import BetaGeoFitter
+from lifetimes.plotting import plot_period_transactions, plot_frequency_recency_matrix, plot_probability_alive_matrix, plot_history_alive
+
+bgModel = BetaGeoFitter()
+bgModel.fit(LastPurchase['Transactions'], LastPurchase['LastPurchase'], LastPurchase['Tracked'])
+
+bgModel.summary
+```
+|coef	|se(coef)	|lower 95% bound	|upper 95% bound|
+|-------|-----------|-------------------|---------------|
+|r	|0.242593	|0.012557	|0.217981	|0.267205|
+|alpha	|4.413532	|0.378221	|3.672218	|5.154846|
+|a	|0.792886	|0.185719	|0.428877	|1.156895|
+|b	|2.425752	|0.705345	|1.043276	|3.808229|
+
+```
+plot_period_transactions(bgModel)
+```
+<img src="https://i.ibb.co/DbHxg34/freqrepeatbgnbdmodel.png" alt="freqrepeatbgnbdmodel" border="0">
+
+The differences between actual and predicted repeat transactions are marginal for each period.
+
+Phenomenal! Now that we have fitted our distributions based on our data, we can take a look at E[Y(t)] and Prob(Active). That is, the expected number of transactions and of a customer based on their profile and the probability of them being alive at time T. 
+
+```
+def bgnbd_expectations(x, t_x, T, t):
+    r, alpha, a, b = bgModel.summary.iloc[:,0]
+    aa = r+x
+    bb = b+x
+    cc = a+b+x-1
+    z = t/(t+alpha+T)
+    terms = np.zeros(shape=(151))
+    terms[0]=1
+    for i in range(1,len(terms)):
+        terms[i] = terms[i-1]*(aa+i-1)*(bb+i-1)/((cc+i-1)*i)*z
+    f2_1 = sum(terms)
+    if x > 0:
+        rpos = 1
+    else:
+        rpos = 0
+        
+    eyt = ((a+b+x-1)/(a-1))*(1-(((alpha+T)/(alpha+T+t))**(r+x))*f2_1)/(1+(rpos*(a/(b+x-1)))*((alpha+T)/(alpha+t_x))**(r+x))
+    
+    prob = 1/(1+(rpos*(a/(b+x-1))*((alpha+T)/(alpha+t_x))**(r+x)))
+    return eyt, prob
+```
+    
+The above function calculates the probability of being alive and the expected number of transactions for a customer. In the next block of code, we will compute these values for all the customers in our dataset.
+
+```
+alive = []
+nextyear = []
+for i, row in LastPurchase.iterrows():
+    ex, proAl = bgnbd_expectations(row.Transactions, row.LastPurchase, row.Tracked, 52) #52 weeks in a year
+    alive.append(proAl)
+    nextyear.append(ex)
+LastPurchase['ProbabilityAlive'] = alive
+LastPurchase['ExpectedTransactions'] = nextyear
+```
+
+By definition, when the number of repeat transactions is zero, there is a 100% probability the customer is alive. This has to do with our assumptions to fit a BetaGeometric process instead of a Pareto process. Therefore, we will only visualize customers that have at least 1 repeat transactions.
+
+```
+activity = LastPurchase[LastPurchase['Transactions']>0]
+```
+<img src="https://i.ibb.co/yQ896sw/expectedlastpurchase.png" alt="expectedlastpurchase" border="0">
+
+As we can observe, we expect a low number of transactions from most our customers, especially those whose last purchase was completed further in the past. This makes sense: the more recent the last transaction (which has to be a repeat transaction!) of a customer has been, the more we should expect such customer to purchase in the future. 
+
+```
+sns.jointplot(activity.ExpectedTransactions, activity.ProbabilityAlive, kind='hex')
+```
+<img src="https://i.ibb.co/2ZJ79Sw/Probaliveexpected.png" alt="Probaliveexpected" border="0">
+
+While probability of a customer being alive may be high, this does not directly translate to a high number of expected transactions. Which do you think are our most valuable customers? 
+
+Say, for example, that you have two customers, Customer1 and Customer2, with different purchasing habits. Customer2 buys more often while Customer1 has more recent transactions with the firm. We are currently in week 40.
+
+Let's generate values for this hypothetical customers and model their retention and expected transaction curves.
+
+```
+cust1 = {"day":[27,34]}
+cust2 = {"day":[4,6,8,10,12,15,17,19,27]}
+cust1 = pd.DataFrame(cust1)
+cust2 = pd.DataFrame(cust2)
+
+lastday1 = 0
+ntrans1 = 1
+probable1 = []
+lastday2 = 0
+ntrans2 = 1
+probable2 = []
+expyear1 = []
+expyear2 = []
+
+for time in range(0,104):
+    if time in cust1.day.values:
+        lastday1 = time
+        ntrans1 += 1
+    if time in cust2.day.values:
+        lastday2 = time
+        ntrans2 += 1
+    ex1, pr1 = bgnbd_expectations(ntrans1,lastday1,time,104)
+    
+    probable1.append(pr1)
+    expyear1.append(ex1)
+    
+    ex2, pr2 = bgnbd_expectations(ntrans2,lastday2,time,104)
+    
+    probable2.append(pr2)
+    expyear2.append(ex2)
+    
+    
+newdict = {"Customer1":probable1,"Customer2":probable2}
+newdf = pd.DataFrame(newdict)
+newdf.plot(figsize=(7,5))
+for b in cust1.day.values:
+    plt.axvline(x=b, linewidth=0.8, linestyle = '--')
+for o in cust2.day.values:
+    plt.axvline(x=o, linewidth=0.8, linestyle = '--', color='tab:orange')   
+plt.axvline(x=40, linestyle='--',color='r')
+plt.title("Probability Alive")
+plt.xlabel("Weeks")
+plt.ylabel("Probability")
+
+expdict = {"Customer1":expyear1,"Customer2":expyear2}
+expdf = pd.DataFrame(expdict)
+expdf.plot(figsize=(7,5))
+for b in cust1.day.values:
+    plt.axvline(x=b, linewidth=0.8, linestyle = '--')
+for o in cust2.day.values:
+    plt.axvline(x=o, linewidth=0.8, linestyle = '--', color='tab:orange')  
+plt.axvline(x=40, linestyle='--',color='r')
+plt.title("Expected Transactions in the Next 2 Years")
+plt.xlabel("Weeks")
+plt.ylabel("Expected Transactions")
+```
+<img src="https://i.ibb.co/3BQjjvr/customermadeup.png" alt="customermadeup" border="0">
+
+While Customer2 was more active in the past, his innactivity for 13 weeks has drastically decreased our probability of him/her being alive as of Week40 (RED) - that is, the probability that he has not churned. Instead, Customer1 has a much higher probability of being alive than Customer2 due to the recency of transactions and the fitted behavioral purchasing patterns which are slow. 
+
+In essence, this shows that the model adapts differently to different individuals based on their purchasing patterns. 
+
+For more examples and derivations of the use of the BG/NBD model, take a look at these posts:
+1. <a href="https://towardsdatascience.com/predicting-customer-lifetime-value-with-buy-til-you-die-probabilistic-models-in-python-f5cac78758d9">Predicting Customer Lifetime Value with “Buy ‘Til You Die” probabilistic models in Python</a> - comprehensive BG/NBD model explenation.
+2. <a href="https://medium.com/liv-up-inside-the-kitchen/looking-at-retention-lifetime-value-with-data-science-1fc884e6a4ad">Looking at retention & lifetime value with data science</a>
+
+For now, let's get back to our Telco dataset and discuss Customer Acquisition!
