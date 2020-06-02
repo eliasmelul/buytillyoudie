@@ -7,8 +7,25 @@ ___
 <h4 align="right">by Elias Melul, Data Scientist </h4> 
 
 ___
-This repository introduces the Kaplan-Meier and BG/NBD models, as well as logistic regression with endogeneity correction using Inverse Mills Ratio, to maximize profitability of a company within a CRM framework.
+
+#### Motivation
+Learning the application of machine learning and mathematical tools to marketing and customer relationship management. This repository introduces the Kaplan-Meier and BG/NBD models, as well as logistic regression with endogeneity correction using Inverse Mills Ratio, to maximize profitability of a company within a CRM framework.
 In this repository, we will use <a href="https://www.kaggle.com/blastchar/telco-customer-churn"> Telco's Customer Churn</a> dataset as an ongoing example. 
+
+#### File Descriptions
+There is a single file that goes through all the methods applied as shown in the README.
+
+#### How to interact with project?
+Since project is written for educational purposes, simply go to the section of interest and read on! 
+
+#### Licensing
+There are no licenses for this repository.
+
+#### Authors
+Elias Melul
+
+#### Acknowledgements
+Duke Univeristy, Matthew Mannary
 
 Happy Reading!
 
