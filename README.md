@@ -325,78 +325,20 @@ The importance of rentention has never been so obvious.
 ---
 
 ### BG/NBD
-The above data had one benefit that is not common in all businesses: it was contractual data. This means that we know whether a customer has churned and therefore can calculate or at least estimate their tenure. The benefits of such data are obvious. However, since this is not always the case, we are going to look at a model that uses non-contractual data: BG/NBD Model - a derivation of the Pareto/NBD model which has been proven to be hard to implement. This model only needs:
+The above data had one benefit that is not common in all businesses: it was contractual data. This entails that we know whether a customer has churned and therefore can calculate or at least estimate their tenure. The benefits of such data are obvious. However, since this is not always the case, we are going to look at a model that uses non-contractual data: BG/NBD Model - a derivation of the Pareto/NBD model which has been proven to be hard to implement. This model only needs:
 1. The number of transactions a customer has made **after** their first transaction.
 2. The time of a customer's last purchase.
-3. How long has the customer been tracked for. 
+3. How long the customer been tracked for. 
 
-One of the key differences between the Pareto/NBD and the BG/NBD model is based on the story being told about how and when customers become inactive. The Pareto timing model assumed that customer churn can occur at any point in time, independetly of the occurrence of actual purchases. However, the BG/NBD model assumed that churn can only occur immediately after a purchase, hence, we can model the timing model as a betageometric model. To learn the formal mathematical change between models, you can access the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>.
+One of the key differences between the Pareto/NBD and the BG/NBD model is based on the story being told about how and when customers become inactive. The Pareto timing model assumes that customer churn can occur at any point in time, independetly of the occurrence of actual purchases. However, the BG/NBD model assumes that churn can only occur immediately after a purchase, hence, we can model the timing model as a betageometric model. 
 
-#### Data Generation
+In the next section, we explain the model in a semi-mathematical and conceptual way. However, there is a small section thereafter called the _Technical Summary_ that briefly goes over the functions used in this model. Remember, you can access the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>. If you are not interested in this model for estimating retention, feel free to skip to the next section: Customer Acquisition.
 
-Telco's data doesn't fit this problem, but let's repurpose it to fit the problem. We will convert it as follows:
-* The integer of the ratio between Total and Monthly charges will indirectly become the **week** of last purchase
-* The number of transactions will be a random integer from 0 to 10
-* How long the customer has been tracked is the week of last purchase plus a random integer from 1 to 40
-
-```
-LastPurchase = []
-TransactionList = []
-for i, row in data.iterrows():
-    try:
-        # We subtract 10 to create a more realistic setting where some customers have not had a second purchase
-        inti = int(float(row.TotalCharges)/float(row.MonthlyCharges)) - 10
-        LastPurchase.append(max(inti, 0))
-        if (inti == 0):
-            TransactionList.append(0)
-        else:
-            TransactionList.append(np.random.randint(1,10))
-    except:
-        pass
-LastPurchase = pd.DataFrame(list(zip(LastPurchase, TransactionList)), columns=["LastPurchase","Transactions"])
-#Lets generate numbers for how long customers have been tracked where they are at least one unit larger than the time of last purchase
-LastPurchase['Tracked'] = LastPurchase['LastPurchase']+ [np.random.randint(1,40) for i in range(len(LastPurchase))]
-```
-Great! Now that we have the data, let's build the model.
-
-In case you have not checked out the actual paper explaining the BG/NBD Model, we will do a quick recap. If you want to understand the model deeply, check out the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>.
-
-**Technical Summary**
-
-1. The number of transactions made by a customers follows a Poisson process with trasaction rate lambda.
-    This is the same as exponentially distributed  time between trasactions 
-<img src="https://i.ibb.co/1KHp2kF/1-Poisson-Process.png" alt="1-Poisson-Process" border="0">
-
-
-2. Heterogenerity ("distribution") in lambda follows a gamma distribution with PDF:
-<img src="https://i.ibb.co/n7RXPpd/2-Gamma-Dist.png" alt="2-Gamma-Dist" border="0">
-
-
-3. After a transaction, a customer can become innactive. The probability of that occuring is denoted by the letter p. Therefore, the point at which the customer "drops out" is distributed across transactions according to a (shifted) geometric distribution with PMF:
-<img src="https://i.ibb.co/C6qLck8/3-PINactive.png" alt="3-PINactive" border="0">
-
-
-4. Heterogeneity ("distribution"/variation) in p follows a Beta distribution with PDF:
-<img src="https://i.ibb.co/wsJ2vgb/4-Beta-Dist.png" alt="4-Beta-Dist" border="0">
-    The transaction rate lambda and the dropout probability p vary independently accross customers.
-    
-    
-5. Therefore, the expected number of transactions in a time period t is:
-<img src="https://i.ibb.co/sgKYK29/5-Expeted-Transactions.png" alt="5-Expeted-Transactions" border="0">
-    This is central to computing the expected transaction volume over time
-
-
-6. And the expected number of transactions of an individual with certain characteristics during the specified time period is:
-<img src="https://i.ibb.co/yNPKFfy/6-Expected-Volume.png" alt="6-Expected-Volume" border="0">
-    In other words, how much is an individual going to purchase in the future?
-    
 Note that in an industry or company where active buyers are either uncommon or very slow in making their purchases, the BG/NBD model will not perform well compared to the Pareto/NBD.
-
----
 
 **Conceptual Summary**
 
-The BG/NBD model quantifies the lifetime value of a customer by assessing the expected number of transactions s/he will have in the future as long as s/he has not churned. For any given customer at any given time there are two options: (1) the customer purchases or does not purchase again, and (2) the customer churns or does not churn. These two options are probabilisitic, meaning that there is a probability associated with the customer pruchasing at a given period and a different probability of a customer churning at a given period. 
+The BG/NBD model quantifies the lifetime value of a customer by assessing the expected number of transactions s/he will have in the future as long as s/he has not churned. For any given customer there are two options: (1) the customer purchases or does not purchase again, and (2) the customer churns or does not churn. These two options are probabilisitic, meaning that there is a probability associated with the customer pruchasing at a given period and a different probability of a customer churning after a purchase. 
 
 The model assumes the following:
 1. Until a customer churns, the number of transactions made by a customer follows a <a href="https://ocw.mit.edu/courses/electrical-engineering-and-computer-science/6-262-discrete-stochastic-processes-spring-2011/course-notes/MIT6_262S11_chap02.pdf">Poisson process</a> - a simple and widely used stochastic process for modeling the times at which arrivals enter a system. 
@@ -427,7 +369,7 @@ This graph simply shows the probability associated with the number of transactio
 
 2. The probability that a customer will purchase follows a Gamma distribution. Similarly, it is the time (the wait time) until the customer purchases again. Therefore, since the number of transaction (from 1) is dependent on the probability of purchase at any given point, we will simulate a Poisson distribution where the rate of arrival (rate of purchasing) - lambda -, is modeled with a Gamma distribution. 
     
-    Note that there is no general concensus as to what the scale parameter should be. Since k is the number of events, we will typically use averages, medians, etc. We will use shape = 5, scale = 1.
+    Note that there is no general concensus as to what the scale parameter should be. This becomes part of the modeling section. In the display, we assume a shape of 5 and a scale of 1.
     
 ```
 shap = 5
@@ -448,16 +390,14 @@ for c in range(100):
 3. There is a probability, p, that a customer becomes innactive after any transaction. This dropout rate is distributed across transactions based on a shifted Geometric distribution. In simple terms, the distribution explains that the higher the amount of transactions a customer makes, the higher the probability of being active - ie not churned.
 
 
-4. Heterogeneity in the probability of churning follows a Beta distribution. In other words, each customer has a different probability of havings churned after a specific amount of transactions.
+4. Heterogeneity in the probability of churning follows a Beta distribution. In other words, each customer has a different probability of having churned after a specific amount of transactions.
 
 
 5. Lambda and the churn probability, p, are independent across customers.
 
-There are three main outputs from the BG/NBD model:
-    1. The expected number of transactions in a time period
-    2. The probability of observing a number of transactions in a time period
-    3. the probability of a customer being innactive after a specified period
     
+If you want to understand the model deeply, check out the <a href="http://brucehardie.com/papers/018/fader_et_al_mksc_05.pdf">original article</a>.
+
 ---
     
 **BG/NBD Modeling**
@@ -467,9 +407,19 @@ Let's get the model implemented! Recall this model only needs:
 2. The time of a customer's last purchase.
 3. How long has the customer been tracked for. 
 
-For the modeling, we are going to use the _lifetimes_ library. In the appendix, you can find the actual functions and derivations. However, due to the lack of an easy to understand non-linear optimizer in Python, I only include the code for the function.
+Since our Telco data does not fit, we will use sample data from the _lifetime_ library. **However**, we assume that is a Telco dataset since we are going to go through the BG/NBD model using a use case.
 
-Since our Telco data does not fit, we will use sample data from the _lifetime_ library.
+##### Case: Telco - Teckie Case
+
+As a large corporation, Telco has multiple services and products. One of their lines of products is online movie rentals - Telco Video. A customer can log in into Telco Video and rent any movie in the platform for only $3 for a span of 48hrs.
+
+Nine months ago, Telco Video started advertising their services on Teckie's website - a company with 50 million frequent online customers. Everything seems to be going great, but executives at Telco Video do not know whether the deal was worth it or not. Now, Teckie has offered Telco Video to extend the advertising deal for a full year on their site. This promotional deal costs $2.3 million. Should Telco take this deal?
+
+We assume that the average purchase rate is $3 (weekly) - 1 movie a week, and that Telco's profit margin is %17. Let's also assume that, based on an analysis done on Teckie's data, 80% of subscribers see the ads, and that 3% of the ad viewers become Telco customers.  
+
+To answer the question of whether Telco Video should take the deal, we need to quantify the expected returns from the deal and see if these outweight the costs.
+
+Using the data from the first 9 months (39 weeks), we will create a BG/NBD model and predict the net present value of revenue for all customers, ultimately determining the value of the deal and helping Telco Video executives make a decision.
 
 ```
 from lifetimes.datasets import load_cdnow_summary
@@ -485,9 +435,9 @@ LastPurchase.head()
 |0|0|38.86|
 |0|0|38.86|
 
-Every row of the data represents a customer. For each customer, we define the number of transactions done after first purchase (Transactions), the time of last purchase (LastPurchase) and the amount of time said customer has been tracked for (Tracked).
+Every row of the data represents a customer. Each customer, has the number of transactions done after first purchase (Transactions), the time of last purchase (LastPurchase) and the amount of time said customer has been tracked for (Tracked).
 
-Next, we import and fit the model. This will tell us the optimal parameters for fitting the beta and geometric distributions. Subsequently, we will calculate the probability of a customer not having churned (being alive) and the expected number of transaction s/he will generate in the upcoming year (52 weeks).
+Next, we import and fit the model. This will tell us the optimal parameters for fitting the beta and geometric distributions. Subsequently, we will calculate the probability of a customer not having churned (being alive) and the expected number of transactions s/he will generate in the upcoming year (52 weeks).
 
 ```
 from lifetimes import BetaGeoFitter
@@ -510,9 +460,9 @@ plot_period_transactions(bgModel)
 ```
 <img src="https://i.ibb.co/DbHxg34/freqrepeatbgnbdmodel.png" alt="freqrepeatbgnbdmodel" border="0">
 
-The differences between actual and predicted repeat transactions are marginal for each period.
+    The differences between actual and predicted repeat transactions are marginal for each period.
 
-Phenomenal! Now that we have fitted our distributions based on our data, we can take a look at E[Y(t)] and Prob(Active). That is, the expected number of transactions and of a customer based on their profile and the probability of them being alive at time T. 
+Phenomenal! Now that we have fitted our distributions based on our data, we can take a look at E[Y(t)] and Prob(Active). That is, the expected number of transactions a customer will do over a year, and the probability that the customer is still alive right now (week 39). Check out the Technical Summary at the end of this section to see the mathematical formulas relevant to this model, or check out the original paper!
 
 ```
 def bgnbd_expectations(x, t_x, T, t):
@@ -550,23 +500,56 @@ LastPurchase['ProbabilityAlive'] = alive
 LastPurchase['ExpectedTransactions'] = nextyear
 ```
 
-By definition, when the number of repeat transactions is zero, there is a 100% probability the customer is alive. This has to do with our assumptions to fit a BetaGeometric process instead of a Pareto process. Therefore, we will only visualize customers that have at least 1 repeat transactions.
+Now, we can leverage the BG/NBD model and estimate the net present value of the revenue generated from the deal and compare it to the cost. Note that by definition, when the number of repeat transactions is zero, there is a 100% probability the customer is alive. This has to do with our assumptions to fit a BetaGeometric process instead of a Pareto process. Therefore, we will use a subset of data that only includes repeat customers - acquired customers - to estimate the NPV of Revenue, which is:
+
+<img src="https://i.ibb.co/F521VBB/npvfunc.png" alt="npvfunc" border="0">
+
 
 ```
 activity = LastPurchase[LastPurchase['Transactions']>0]
+
+purchase = 3
+grossMargin = .17
+d = 0.03
+activity['NPVRevenue'] = activity.apply(lambda activity: activity['ExpectedTransactions']*purchase*grossMargin*(activity['ProbabilityAlive']/(1+d-activity['ProbabilityAlive'])), axis=1)
+
+# If Teckie has 100 million customers and 90% see adds 
+# and only 3% of those who saw the ads are transformed into Telco's customers...
+newCustomers = 50000000*0.8*0.02
+
+# Total expected NPV adjusted for this promotional deal:
+totalNPV = activity.NPVRevenue.sum()*(newCustomers/len(activity))
+costDeal = 2.3 #Millions
+
+print(f"Total number of new customers: {newCustomers}")
+print(f"NPV Revenue from ad transforms ${round(totalNPV/1000000,2)}M")
+print(f"Cost of Deal: ${costDeal}M")
+print(f"Net Value of Deal: ${round(round(totalNPV/1000000,2)-costDeal,2)}M")
+print(f"Return on Investment: {round((round(totalNPV/1000000,2)-costDeal)*100/costDeal,2)}%")
+print(f"Median Retention {round(activity.ProbabilityAlive.median()*100,2)}%")
+print(f"Median transactions in first year: {activity.Transactions.median()}")
 ```
-<img src="https://i.ibb.co/yQ896sw/expectedlastpurchase.png" alt="expectedlastpurchase" border="0">
+Total number of new customers: 800000.0
+NPV Revenue from ad transforms $2.89M
+Cost of Deal: $2.3M
+Net Value of Deal: $0.59M
+Return on Investment: 25.65%
+Median Retention 58.29%
+Median transactions in first year: 2.0
 
-As we can observe, we expect a low number of transactions from most our customers, especially those whose last purchase was completed further in the past. This makes sense: the more recent the last transaction (which has to be a repeat transaction!) of a customer has been, the more we should expect such customer to purchase in the future. 
+So, should Telco Video take the deal? 
 
-```
-sns.jointplot(activity.ExpectedTransactions, activity.ProbabilityAlive, kind='hex')
-```
-<img src="https://i.ibb.co/2ZJ79Sw/Probaliveexpected.png" alt="Probaliveexpected" border="0">
+Absolutely! Based on our analysis on the newly acquired customers, we should expect:
+* Returns of $2.89 million over the next year. 
 
-While probability of a customer being alive may be high, this does not directly translate to a high number of expected transactions. Which do you think are our most valuable customers? 
+* Profit of $590,000 
+* Return of Investment of 25.65%.
 
-Say, for example, that you have two customers, Customer1 and Customer2, with different purchasing habits. Customer2 buys more often while Customer1 has more recent transactions with the firm. We are currently in week 40.
+___
+
+For educational purposes, let's visualize how BG/NBD models behavior over time, and how predictions may vary accordingly. 
+
+Say that Telco Video have two customers, Customer1 and Customer2, with different purchasing habits. Customer2 buys more often while Customer1 has more recent transactions with the firm. We are currently in week 40.
 
 Let's generate values for this hypothetical customers and model their retention and expected transaction curves.
 
@@ -631,10 +614,125 @@ plt.ylabel("Expected Transactions")
 
 While Customer2 was more active in the past, his innactivity for 13 weeks has drastically decreased our probability of him/her being alive as of Week40 (RED) - that is, the probability that he has not churned. Instead, Customer1 has a much higher probability of being alive than Customer2 due to the recency of transactions and the fitted behavioral purchasing patterns which are slow. 
 
-In essence, this shows that the model adapts differently to different individuals based on their purchasing patterns. 
-
 For more examples and derivations of the use of the BG/NBD model, take a look at these posts:
 1. <a href="https://towardsdatascience.com/predicting-customer-lifetime-value-with-buy-til-you-die-probabilistic-models-in-python-f5cac78758d9">Predicting Customer Lifetime Value with “Buy ‘Til You Die” probabilistic models in Python</a> - comprehensive BG/NBD model explenation.
 2. <a href="https://medium.com/liv-up-inside-the-kitchen/looking-at-retention-lifetime-value-with-data-science-1fc884e6a4ad">Looking at retention & lifetime value with data science</a>
 
-For now, let's get back to our Telco dataset and discuss Customer Acquisition!
+Take a look at the Technical Summary if you want to see the mathematical formulas relevant to the modeling of the BG/NBD model.
+
+
+**Technical Summary**
+
+1. The number of transactions made by a customers follows a Poisson process with trasaction rate lambda.
+    This is the same as exponentially distributed  time between trasactions 
+<img src="https://i.ibb.co/1KHp2kF/1-Poisson-Process.png" alt="1-Poisson-Process" border="0">
+
+
+2. Heterogenerity ("distribution") in lambda follows a gamma distribution with PDF:
+<img src="https://i.ibb.co/n7RXPpd/2-Gamma-Dist.png" alt="2-Gamma-Dist" border="0">
+
+
+3. After a transaction, a customer can become innactive. The probability of that occuring is denoted by the letter p. Therefore, the point at which the customer "drops out" is distributed across transactions according to a (shifted) geometric distribution with PMF:
+<img src="https://i.ibb.co/C6qLck8/3-PINactive.png" alt="3-PINactive" border="0">
+
+
+4. Heterogeneity ("distribution"/variation) in p follows a Beta distribution with PDF:
+<img src="https://i.ibb.co/wsJ2vgb/4-Beta-Dist.png" alt="4-Beta-Dist" border="0">
+    The transaction rate lambda and the dropout probability p vary independently accross customers.
+    
+    
+5. Therefore, the expected number of transactions in a time period t is:
+<img src="https://i.ibb.co/sgKYK29/5-Expeted-Transactions.png" alt="5-Expeted-Transactions" border="0">
+    This is central to computing the expected transaction volume over time
+
+
+6. And the expected number of transactions of an individual with certain characteristics during the specified time period is:
+<img src="https://i.ibb.co/yNPKFfy/6-Expected-Volume.png" alt="6-Expected-Volume" border="0">
+    In other words, how much is an individual going to purchase in the future?
+
+___
+
+#### Predicting Churn - Logistic Regression
+
+A more common approach to churn prediction is using logistic regression. A lot of articles and examples exist surrounding this method, since it is commonly used for introduction to machine learning. We will create a model but assume that you already know how it works.
+
+```
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+
+yn_dict = {"Yes":1,"No":0,"No phone service":0,"No internet service":0}
+gender_dict = {"Female":1,"Male":0}
+data.gender = [gender_dict[item] for item in data.gender]
+
+is_col = ['Partner','Dependents','PhoneService','MultipleLines','OnlineSecurity',\
+          'OnlineBackup','DeviceProtection','TechSupport','StreamingTV',\
+          'StreamingMovies','PaperlessBilling','Churn']
+
+for col in is_col:
+    try:
+        data[col] = [yn_dict[item] for item in data[col]]
+    except:
+        data[col] = [gender_dict[item] for item in data[col]]
+
+
+all_columns_list = data.columns.to_list()
+all_columns_list = [col for col in all_columns_list if col not in ['Churn','TotalCharges']]
+X = data[all_columns_list]
+X = pd.get_dummies(X)
+
+y = data['Churn']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+
+steps = [("scaler", MinMaxScaler()),("LogisticRegression",LogisticRegression())]
+LogReg_Pipeline = Pipeline(steps)
+
+LogReg_Pipeline.fit(X_train, y_train)
+y_pred = LogReg_Pipeline.predict(X_test)
+print(f"{LogReg_Pipeline.score(X_test, y_test)}")
+```
+0.8143100511073254
+
+### What did we learn in this section?
+
+* We learned about customer retention and how effective and important it is to the profitability of a company. 
+
+* We learned how to use the Kaplan-Meier model in a contractual setting to estimate the CLV, and we learned how to create an BG/NBD model for a non-contractual business setting, and get the expected transactions and probability of retention for every customer based on their past behavior. 
+
+* We saw some examples of how these models can be used to drive decisions and help businesses allocate resources, catalyze growth, and help executives quantify proposals.
+
+* Next, we will go into customer acquisition, another critical part of our CRM framework!
+
+__________
+
+## Customer Acquisition
+
+Customer Acquisition comes in many shapes and forms - it could be content marketing, social media, search marketing, and email marketing, among others. Regardless of its form, these marketing campaigns target potential customers - humans - and humans have various decision mechanisms that vary depending on what they are purchasing. 
+
+In marketing, a common tool to understanding the process of turning leads into customers - potential customers into actual customers, that is - is called the Marketing Funnel. In this method, customers start with a set of potential brands and methodically reduce that number to make a purchase. Let's dive deeper.
+
+<img src="https://i.ibb.co/1dCHDHn/mktg-Funnel.png" alt="mktg-Funnel" border="0" width = "600">
+
+The marketing funnel, shown above, has six stages, with each stage having a lesser number of candidates than the last.
+1. **Awareness** - stage at which firms raise awareness about a product or service through marketing campaigns, customer research, events, advertising, social media, and more. This generates a number of interested potential customers.
+2. **Interest** - once leads are generated, potential customers learn more about the company and products or services. In this stage, marketers can nurture leads through emails, newsletters and targeted content.
+3. **Consideration** - at this stage, interested customers become qualified leads that are considering purchasing the product. Here, marketers continue to nurture their relationships with qualified leads,  informing leads with case studies and free trials.
+4. **Intent** - after a survey, product demo or by simply adding an item to the shopping cart, a customer demonstates a legitimate interest in purchasing the product. If they have demonstrated said interest, they're in the intent state, in which marketers must make a good case why their product is the best choice for the customer, as compared to the competition's products.
+5. **Evaluation** - this is the stage in which buyers are making their final decision about the purchase. Marketers and sales work closely to convince the customer to purchase their brand's product/service.
+6. **Purchase** - the sales transaction is completed!
+
+While the marketing funnel can be a great conceptual tool and framework, it is often the case that customers follow a Customer Decision Journey process when making their purchasing options. This is because different customers (and different segments), have different decision processes.
+
+<img src="https://i.ibb.co/0GgxnGg/CDJ.png" alt="CDJ" border="0" width = "500">
+
+Above, the Customer Decision Journey (CDJ) has six stages within a loop with a "shortcut" in the loop for repeat customers. CDJ exemplifies a common approach to purchasing decisions, emphasizing the importance of word of mouth during this process.
+
+1. The customer begins by considering brands and products based on perceptions and exposure, typically generated by paid media. 
+2. S/he then passes to an active evaluation of the brands and products, which includes gathering information from any sources, including owned media where they can see people's opinions and reviews about the product. 
+3. The next stage is the point-of-purchase stage, in which customers select the brand they want to purchase from. 
+4. Subsequently, the customer enjoys and engages with the product s/he just baught, building expectations to inform the next decision journey. 
+5. At some point in the future, something may occur that triggers the customer to advocate for the product to another person, which establishes a new relationship between the customer, the potential customer and the brand. 
+6. At this point, a new lead has been generated through advocacy and the previous customer has entered the loyalty loop, where s/he may become a repeat purchase.
+
